@@ -4,19 +4,19 @@ title: |
 author: Eyayaw
 date: today
 date-format: long
-format: 
+format:
   html:
-    theme: 
-     dark : flatly
-     light: default
-execute: 
+    theme:
+     light: flatly
+     dark : darkly
+execute:
   warning: false
   message: false
 code-fold: true
 code-line-numbers: true
 code-link: true
 code-tools: true
-highlight-style: dracula
+highlight-style: solarized
 link-external-icon: true
 link-external-newwindow: true
 ---
@@ -29,29 +29,48 @@ library(ggplot2)
 library(patchwork)
 library(ggtext)
 library(showtext)
+
+# plot options
+theme_set(theme_minimal())
+fig_width = 16
+fig_height = 8
+
+font_add("abyssinica sil", "AbyssinicaSIL-Regular.ttf")
+font_add("helvetica", "Helvetica.ttc")
+
+showtext_opts(dpi=320)
+showtext_auto()
+caption_text = "Author: <span style = 'color:#0090e8;'>twitter.com/eyayaw</span><br>Data: accessed via <span style = 'color:red;'>YouTube Data API v3</span>"
 ```
 
 ## Channel info
 
 ```{r}
 #| label: channel info
-atime = "2022-12-16 02:03:42 CET" # data extraction time
+access_time = "2022-12-16 02:03:42 CET" # data access time
+ch_title = "Ethio-360-Media" # channel title (sep by -)
+
 channel_info = jsonlite::fromJSON(
-  sprintf("Ethio-360-Media/channel-info_Ethio-360-Media_%s.json", atime),
+  sprintf("%s/channel-info_%s_%s.json", ch_title, ch_title, access_time),
   flatten = TRUE
 )
 ```
 
--   **Channel title**: `r channel_info$snippet$title`![](Ethio-360-Media/channel-logo_Ethio-360-Media.png){width="4.7mm" height="5mm"}
+-   **Channel title**:
+    `r channel_info$snippet$title`![](Ethio-360-Media/channel-logo_Ethio-360-Media.jpg){width="4.7mm"
+    height="5mm"}
 -   **Channel statistics**:
-    -   Views: `r prettyNum(channel_info$statistics$viewCount, big.mark=",")`
-    -   Subscribers: `r prettyNum(channel_info$statistics$subscriberCount, big.mark=",")`
-    -   Videos uploaded: `r prettyNum(channel_info$statistics$videoCount, big.mark=",")`
+    -   Views:
+        `r prettyNum(channel_info$statistics$viewCount, big.mark=",")`
+    -   Subscribers:
+        `r prettyNum(channel_info$statistics$subscriberCount, big.mark=",")`
+    -   Videos uploaded:
+        `r prettyNum(channel_info$statistics$videoCount, big.mark=",")`
 
 ```{r}
 #| label: import channel data
 channel_data = fread(
-  sprintf("Ethio-360-Media/channel-data_Ethio-360-Media_%s.csv", atime),
+  sprintf("%s/channel-data_%s_%s.csv", ch_title, ch_title, access_time),
   na.strings = "NaN", encoding = "UTF-8"
 )
 
@@ -74,14 +93,10 @@ channel_data[, hour := as.integer(stri_extract(duration, regex = dur_patt["hour"
              ][, minute := as.integer(stri_extract(duration, regex = dur_patt["minute"]))
                ][, second := as.integer(stri_extract(duration, regex = dur_patt["second"]))]
 # duration in seconds
-channel_data[, duration_second := as.integer(rowSums(cbind(hour*3600, minute*60, second), na.rm=TRUE))
-             ][, duration_minute := round(duration_second/60, 2)]
+channel_data[, duration_second := as.integer(rowSums(cbind(hour * 3600, minute * 60, second), na.rm = TRUE))
+             ][, duration_minute := round(duration_second / 60, 2)]
 
-# make short title by removing unnessary info in the title
-# channel_data[, stitle := stringi::stri_extract_all_regex(title, "(\\p{Ethiopic}+([\\p{P}\\p{Z}])*)+") |>
-#       unlist() |>
-#       trimws() |>
-#       gsub("[\'\"]", "", x = _)]
+# make short title by removing unnecessary info in the title
 programs = c("zare m(i|e)n ale", "se?pecial programm?", "(daily )?news", "poleti[kc]achin")
 patt = paste(paste0(programs[-3], "[\\p{Z}\\p{S}]*"), collapse = "|")
 patt_date = r"{(?<day>\p{Lu}\p{Ll}+[ ,-]*)?(?<mon>\p{Lu}\p{Ll}+[ ,]*)?(?<date>\d{1,2}[ ,\']*)?(?<year>\d{4})$}"
@@ -89,195 +104,91 @@ channel_data[, stitle := sub("^[Ee]thio ?360( Media)?", "", title)
              ][, stitle := gsub(patt, "", stitle, ignore.case = TRUE, perl = TRUE)
                ][, stitle := sub(patt_date, "", stitle, perl = TRUE)
                  # remove quotes anywhere, and spaces around puncts if at the end.
-                 ][, stitle := gsub("['\"]", "", stitle) |>
-                     stri_replace_all_regex(" *([:punct:]+) *$", "$1") |>
-                     stri_trim_both()]
+                ][, stitle := gsub("['\"]", "", stitle) |>
+                    stri_replace_all_regex(" *([:punct:]+) *$", "$1") |>
+                    stri_trim_both()]
 
 
 # parse program type
-channel_data[, prog := stri_extract(title, regex = paste(programs, collapse = "|"), case_insensitive = TRUE)][, prog := fcase(
+channel_data[, prog := stri_extract(
+  title, regex = paste(programs, collapse = "|"), case_insensitive = TRUE
+  )
+  ][, prog := fcase(
   prog %ilike% programs[1], "Zare Min Ale",
   prog %ilike% programs[2], "Special Program",
   prog %ilike% programs[3], "News",
   prog %ilike% programs[4], "Poletikachin",
   rep(TRUE, length(prog)), "Unknown"
 )]
-
 setcolorder(channel_data, c("stitle", "prog"), after = "title")
 
 
-# create the video link
-channel_data[, videoLink := sprintf("[%s](https://youtu.be/%s)", videoId, videoId)]
-# channel_data[, videoLink := sprintf("<a href=\"https://youtu.be/%s\">%s</a>", videoId, videoId)]
+# full video url
+# channel_data[, videoLink := sprintf("[%s](https://youtu.be/%s)", videoId, videoId)]
+channel_data[, videoLink := sprintf("<a href=\"https://youtu.be/%s\">%s</a>", videoId, videoId)]
 ```
 
+## Most popular videos by number of views, likes, comments, and duration
+
+```{r}
+#| fig-width: 16
+#| fig-height: 8
+#| cache: false
+source("chart.R")
+```
+
+## Length of videos
+
+```{r}
+channel_data |>
+  subset(duration_minute > 0) |>
+  ggplot() +
+  geom_histogram(aes(duration_minute, fill = prog), bins = 30, color = "gray90") +
+  facet_wrap(~prog, scales = "free") +
+  labs(
+    x = "Video duration (minutes)",
+    title = "Histogram: Video length (in minutes) by program type*",
+    caption = "*Program type is parsed from the video description."
+  ) +
+  theme(legend.position = "none") -> p
+
+wrap_plots(p, ggplot() +
+  geom_textbox(aes(x, y, label="Haha"), data.frame(x=5, y=5)) +
+  theme_void())
+```
 
 ## Most and least viewed videos
 
 ```{r}
 #| label: top 10 videos
-channel_data[, rank := rank(-viewCount, ties.method = "max", na.last = "keep")]
 
-top_10_vids = channel_data[order(rank), ] |>
-  DT(1:10, .(videoLink, videoPublishedAt, stitle, duration, viewCount, likeCount, commentCount))
+top_10_vids = top_10_long[stat_name == "viewCount", ] |>
+  DT(, .(videoLink, videoPublishedAt, title, duration, viewCount = count))
 
-bottom_10_vids = channel_data[order(-rank), ] |>
-  subset(viewCount > 0) |> # videos with no views might be rescheduled live streams
-  DT(1:10, .(videoLink, videoPublishedAt, stitle, duration, viewCount, likeCount, commentCount))
+bottom_10_vids = ch_data_long[stat_name == "viewCount", ] |>
+  subset(count > 0) |> # videos with no views might be rescheduled live streams
+  DT(order(count), ) |>
+  DT(1:10, .(videoLink, videoPublishedAt, title, duration, viewCount = count))
 ```
-
-::: panel-tabset
-# Most popular videos
-
-::: panel-tabset
-## Table
 
 ```{r}
 #| label: table
-#| results: markup
+#| results: asis
+
 knitr::kable(
-  top_10_vids[, .(videoLink, videoPublishedAt, viewCount)],
+  top_10_vids[, .(videoLink, title, videoPublishedAt, viewCount)],
   booktabs = TRUE, escape = FALSE,
-  caption = "The 10 Most Popular Videos (by #views)"
+  caption = "10 Most viewed videos"
 ) |>
-  kableExtra::kable_styling(font_size = 8, bootstrap_options = c("striped", "hover", "condensed"))
-```
+  kableExtra::kable_styling(
+    font_size = 8, bootstrap_options = c("striped", "hover", "condensed")
+    )
 
 
-```{r}
-#| label: plot-settings
-font_add("abyssinica sil", "AbyssinicaSIL-Regular.ttf")
-font_add("helvetica", "Helvetica.ttc")
-showtext_auto()
-caption_text = "Author: <span style = 'color:#0090e8;'>twitter.com/eyayaw</span><br>Data: accessed via <span style = 'color:red;'>YouTube Data API v3</span>"
-```
-
-## Bar Plot
-
-```{r}
-#| label: fig-top-10
-#| fig-width: 12
-#| fig-height: 8
-
-# bar plot
-
-top_10_vids |>
-  transform(
-    stitle = sapply(stri_wrap(stitle, simplify = F), paste, collapse = "\n")
-  ) |>
-  transform(
-    stitle = stitle |> 
-      # gsub("['\"]", "", x = _) |>
-      # stri_replace_all_regex(" *([:punct:]+) *$", "$1") |> 
-      # stri_trim_both() |> 
-      paste0("\n", videoPublishedAt)|> 
-      reorder(viewCount)
-    ) |>
-  ggplot(aes(x = viewCount, y = stitle)) +
-  geom_col(fill = "#f68060", alpha = 0.6, width = 0.25) +
-  geom_text(aes(label = prettyNum(viewCount, ",")), size = 4, hjust = -0.05) +
-  # geom_text(aes(-3, stitle, label = stitle), size = 5, hjust = 1, family="abyssinica sil") +
-  scale_x_continuous(
-    labels = scales::label_number(scale = 1 / 1000, suffix = "k"),
-    expand = expansion(c(0, .125)),
-    breaks = 100000 * seq(0, 10, 2.5)
-  ) +
-  coord_cartesian(clip = "off") +
-  labs(
-    x = "views",
-    y = NULL, # y = "title",
-    title = sprintf("%s's 10 Most Popular Videos", channel_info$snippet$title),
-    subtitle = sprintf("Data access date: %s", atime),
-    caption = caption_text
-  ) +
-  theme_minimal() +
-  theme(
-    axis.text.x = element_text(),
-    # axis.text.y = element_blank(),
-    axis.text.y = element_text(family = "abyssinica sil"),
-    plot.title = element_text(face = "bold"),
-    plot.subtitle = element_text(face = "italic"),
-    plot.caption = element_markdown(face = "italic", lineheight = 1.2),
-    plot.margin = margin(10, 8, 10, 8),
-    panel.grid.major.y = element_blank(),
-    panel.grid.minor = element_blank(),
-    panel.background = element_rect(fill = "gray97", color = NA)
-  )
-```
-:::
-
-# Least popular videos
-
-::: panel-tabset
-## Table
-
-```{r}
-#| label: tbl-bottom-10
-#| tbl-cap: "The 10 Least Popular Videos (by #views)"
-#| results: markup
 knitr::kable(
-  bottom_10_vids,
-  booktabs = TRUE, escape = FALSE
+  bottom_10_vids[, .(videoLink, title, videoPublishedAt, viewCount)],
+  booktabs = TRUE, escape = FALSE,
+  caption = "10 Least viewed videos"
 ) |>
   kableExtra::kable_styling(font_size = 8, bootstrap_options = c("striped", "hover", "condensed"))
-```
-
-## Bar Plot
-
-```{r}
-#| label: fig-bottom-10
-#| fig-width: 12
-#| fig-height: 8
-bottom_10_vids |>
-  transform(
-    stitle = sapply(stri_wrap(stitle, simplify = F), paste, collapse = "\n")
-  ) |>
-  transform(
-    stitle = stitle |> 
-      # gsub("['\"]", "", x = _) |>
-      # stri_replace_all_regex(" *([:punct:]+) *$", "$1") |> 
-      # stri_trim_both() |> 
-      paste0("\n", videoPublishedAt)|> 
-      reorder(viewCount)
-    ) |>
-  ggplot(aes(x = viewCount, y = stitle)) +
-  geom_col(fill = "#f68060", alpha = 0.6, width = 0.25) +
-  geom_text(aes(label = prettyNum(viewCount, ",")), size = 4, hjust = -0.05) +
-  # geom_text(aes(-3, stitle, label = stitle), size = 5, hjust = 1, family="abyssinica sil") +
-  scale_x_continuous(
-    labels = scales::label_number(scale = 1 / 1000, suffix = "k"),
-    expand = expansion(c(0, .125)),
-    breaks = 100000 * seq(0, 10, 2.5)
-  ) +
-  coord_cartesian(clip = "off") +
-  labs(
-    x = "views",
-    y = NULL,
-    title = sprintf("%s's 10 Least Popular Videos", channel_info$snippet$title),
-    subtitle = sprintf("Data access date: %s", atime),
-    caption = caption_text
-  ) +
-  theme_minimal() +
-  theme(
-    axis.text.x = element_text(),
-    # axis.text.y = element_blank(),
-    axis.text.y = element_text(family = "abyssinica sil"),
-    plot.title = element_text(face = "bold"),
-    plot.subtitle = element_text(face = "italic"),
-    plot.caption = element_markdown(face = "italic", lineheight = 1.2),
-    plot.margin = margin(10, 8, 10, 8),
-    panel.grid.major.y = element_blank(),
-    panel.grid.minor = element_blank(),
-    panel.background = element_rect(fill = "gray97", color = NA)
-  )
-```
-:::
-:::
-
-## Least viewed videos
-
-```{r}
-#| fig-width: 16
-#| fig-height: 8
-source("chart.R")
 ```
